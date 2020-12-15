@@ -2,11 +2,11 @@ package interview_accountapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	path2 "path"
+	"path"
+	"time"
 )
 
 const AccountsPath = "v1/organisation/accounts"
@@ -16,49 +16,56 @@ type AccountListResults struct {
 	error   error
 }
 
-func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Account, error) {
+func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Account, *ApiError) {
+	var apiErr *ApiError
 	accounts := make(chan *Account)
-	var (
-		dec  *json.Decoder
-		err  error
-		resp *http.Response
-	)
 
 	// Append filters and pagination to query string //
 	u, q, err := parseURL(AccountsPath)
 	if err != nil {
-		return nil, err
+		return nil, NewApiError(nil, err.Error())
 	}
 
 	q.Set("page[size]", fmt.Sprint(client.PageSize))
 
 	for k, v := range filters {
 		if !accountListFilters[k] {
-			return nil, errors.New(fmt.Sprint("invalid filter key", k))
+			return nil, NewApiError(nil, "invalid filter key: %s", k)
 		}
 		q.Set(fmt.Sprintf("filter[%s]", k), v)
 	}
 
-	path := assembleURL(u, q)
+	pth := assembleURL(u, q)
 
 	// fixme implement a better way to return error, from subsequent loops too //
 	go func() {
-		for i := 0; path != ""; i++ {
-			resp, dec, err = client.JsonRequest(http.MethodGet, path, nil)
-			if err != nil {
-				close(accounts)
-				return
+		var (
+			dec      *json.Decoder
+			resp     *http.Response
+			lastTime time.Time
+		)
+
+		for i := 0; pth != ""; i++ {
+			sleepDuration := client.PagingBackOff - time.Now().Sub(lastTime)
+			if 0 < i && 0 < sleepDuration {
+				time.Sleep(sleepDuration)
+			}
+			lastTime = time.Now()
+
+			resp, dec, apiErr = client.JsonRequest(http.MethodGet, pth, nil)
+			if apiErr != nil {
+				break
 			}
 
 			var response AccountDetailsListResponse
-			err = dec.Decode(&response)
+			err := dec.Decode(&response)
 			if e := resp.Body.Close(); e != nil {
 				log.Print("Closing of response body failed!")
 			}
 
 			if err != nil {
-				close(accounts)
-				return
+				apiErr = NewApiError(resp, err.Error())
+				break
 			}
 
 			// signals outer func to return Fixme better solution is needed //
@@ -70,106 +77,115 @@ func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Accoun
 				accounts <- acc
 			}
 
-			path = response.Links.Next
+			if response.Links == nil {
+				break
+			}
+			pth = response.Links.Next
 
 		}
 		close(accounts)
 	}()
 
-	// block until first result is ready fixme find better solution //
+	// block until first result is ready,
+	// also abusing a apiErr which is shared with internal goroutine to get at least the error of the first request
 	<-accounts
 
-	return accounts, err
+	return accounts, apiErr
 }
 
-func (client *ApiClient) CreateAccount(account *Account) (*Account, error) {
+func (client *ApiClient) CreateAccount(account *Account) (*Account, *ApiError) {
 	if err := account.Validate(); err != nil {
-		return nil, err
+		return nil, NewApiError(nil, err.Error())
 	}
 
-	resp, dec, err := client.JsonRequest(http.MethodPost, AccountsPath, AccountCreation{account})
-	if err != nil {
-		return nil, err
+	resp, dec, apiErr := client.JsonRequest(http.MethodPost, AccountsPath, AccountCreation{account})
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
 	var response AccountCreationResponse
-	err = dec.Decode(&response)
+	if err := dec.Decode(&response); err != nil {
+		apiErr = NewApiError(resp, err.Error())
+	}
 	if e := resp.Body.Close(); e != nil {
 		log.Print("Closing of response body failed!")
 	}
 
-	return response.Data, err
+	return response.Data, apiErr
 }
 
-func (client *ApiClient) UpdateAccount(id string, account *Account) (*Account, error) {
+func (client *ApiClient) UpdateAccount(id string, account *Account) (*Account, *ApiError) {
 	if id == "" {
-		return nil, errors.New("empty account id")
+		return nil, NewApiError(nil, "Empty account id")
 	}
-	path := path2.Join(AccountsPath, id)
+	pth := path.Join(AccountsPath, id)
 
 	if err := account.Validate(); err != nil {
-		return nil, err
+		return nil, NewApiError(nil, err.Error())
 	}
 
-	resp, dec, err := client.JsonRequest(http.MethodPatch, path, AccountCreation{account})
-	if err != nil {
-		return nil, err
+	resp, dec, apiErr := client.JsonRequest(http.MethodPatch, pth, AccountAmendment{account})
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
 	var response AccountDetailsResponse
-	err = dec.Decode(&response)
+	if err := dec.Decode(&response); err != nil {
+		apiErr = NewApiError(resp, err.Error())
+	}
 	if e := resp.Body.Close(); e != nil {
 		log.Print("Closing of response body failed!")
 	}
 
-	return response.Data, err
+	return response.Data, apiErr
 }
 
-func (client *ApiClient) FetchAccount(id string) (*Account, error) {
+func (client *ApiClient) FetchAccount(id string) (*Account, *ApiError) {
 	if id == "" {
-		return nil, errors.New("empty account id")
+		return nil, NewApiError(nil, "Empty account id")
 	}
-	path := path2.Join(AccountsPath, id)
+	pth := path.Join(AccountsPath, id)
 
-	resp, dec, err := client.JsonRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
+	resp, dec, apiErr := client.JsonRequest(http.MethodGet, pth, nil)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
 	var response AccountDetailsResponse
-	err = dec.Decode(&response)
+	if err := dec.Decode(&response); err != nil {
+		apiErr = NewApiError(resp, err.Error())
+	}
 	if e := resp.Body.Close(); e != nil {
 		log.Print("Closing of response body failed!")
 	}
 
-	return response.Data, err
+	return response.Data, apiErr
 }
 
-func (client *ApiClient) DeleteAccount(id string, version uint) error {
+func (client *ApiClient) DeleteAccount(id string, version uint) *ApiError {
 	if id == "" {
-		return errors.New("empty account id")
+		return NewApiError(nil, "Empty account id")
 	}
 
 	u, v, err := parseURL(AccountsPath)
 	if err != nil {
-		return err
+		return NewApiError(nil, err.Error())
 	}
 
-	u.Path = path2.Join(u.Path, id)
+	u.Path = path.Join(u.Path, id)
 	v.Set("version", fmt.Sprint(version))
 
-	path := assembleURL(u, v)
+	pth := assembleURL(u, v)
 
-	req, err := client.NewRequest(http.MethodDelete, path, nil)
+	req, err := client.NewRequest(http.MethodDelete, pth, nil)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
+	resp, apiErr := client.Do(req)
+	if apiErr != nil {
+		return apiErr
 	}
 
-	if resp.StatusCode != http.StatusNoContent {
-		return errors.New(fmt.Sprintf("failed to delete account %s received status code %d", id, resp.StatusCode))
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
 	}
-
-	return nil
+	return NewApiError(resp, "Failed to delete account %s received status %s", id, resp.Status)
 }

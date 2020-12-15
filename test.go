@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 const TestApiBase = "http://localhost:8080/"
@@ -28,10 +29,11 @@ func NewTestContext(t *testing.T) *TestContext {
 		err = test.Client.SetBaseURL(TestApiBase)
 	}
 	if err != nil {
-		test.T.Log("Failed to create API client,", err)
-		test.T.Fail()
-		return nil
+		test.T.Fatalf("Failed to create API client: %s", err)
 	}
+
+	rand.Seed(time.Now().UnixNano())
+	test.T.Log("Random seed initialised")
 
 	return &test
 }
@@ -55,7 +57,7 @@ func uuid4s() string {
 }
 
 func printJson(account *Account) error {
-	jsonData, err := json.Marshal(*account)
+	jsonData, err := json.Marshal(account)
 	if err != nil {
 		return errors.New(fmt.Sprintf("json.Marshal() failed: %s", err))
 	}

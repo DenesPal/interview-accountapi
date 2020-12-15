@@ -15,21 +15,23 @@ import (
 )
 
 const (
-	ApiBase        = "https://api.form3.tech/"
-	ContentType    = "application/vnd.api+json"
-	Accept         = ContentType
-	DefaultTimeout = time.Duration(5) * time.Second
-	DefaultRetries = 3
-	DefaultBackOff = time.Duration(3) * time.Second
+	ApiBase              = "https://api.form3.tech/"
+	ContentType          = "application/vnd.api+json"
+	Accept               = ContentType
+	DefaultTimeout       = time.Duration(5) * time.Second
+	DefaultRetries       = 3
+	DefaultErrorBackOff  = time.Duration(3) * time.Second
+	DefaultPagingBackOff = time.Duration(400) * time.Millisecond
 )
 
 type ApiClient struct {
-	BaseURL    *url.URL
-	Timeout    time.Duration
-	Retries    uint
-	BackOff    time.Duration
-	HTTPClient *http.Client
-	PageSize   uint
+	BaseURL       *url.URL
+	Timeout       time.Duration
+	Retries       uint
+	ErrorBackOff  time.Duration
+	PagingBackOff time.Duration
+	HTTPClient    *http.Client
+	PageSize      uint
 }
 
 func NewClient(client ApiClient) (*ApiClient, error) {
@@ -39,8 +41,11 @@ func NewClient(client ApiClient) (*ApiClient, error) {
 	if client.Retries == 0 {
 		client.Retries = DefaultRetries
 	}
-	if client.BackOff == 0 {
-		client.BackOff = DefaultBackOff
+	if client.ErrorBackOff == 0 {
+		client.ErrorBackOff = DefaultErrorBackOff
+	}
+	if client.PagingBackOff == 0 {
+		client.PagingBackOff = DefaultPagingBackOff
 	}
 	if client.PageSize == 0 {
 		client.PageSize = 100
@@ -89,7 +94,7 @@ func (client *ApiClient) NewRequest(method string, path string, body io.Reader) 
 	return req, nil
 }
 
-func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
+func (client *ApiClient) Do(req *http.Request) (*http.Response, *ApiError) {
 	var body []byte
 	var err error
 	var resp *http.Response
@@ -106,6 +111,7 @@ func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	var lastTime time.Time
+Retry:
 	for turn := uint(0); turn < client.Retries; turn++ {
 		if req.Body != nil {
 			// Recreating request body for each requests //
@@ -113,10 +119,10 @@ func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
 		}
 
 		if turn > 0 {
-			sleepDuration := client.BackOff - time.Now().Sub(lastTime)
+			sleepDuration := client.ErrorBackOff - time.Now().Sub(lastTime)
 			if sleepDuration > 0 {
 				log.Printf("Retrying %s request in %v %s %s", req.Proto, sleepDuration, req.Method, req.URL.String())
-				time.Sleep(time.Duration(sleepDuration))
+				time.Sleep(sleepDuration)
 			}
 		}
 
@@ -127,7 +133,7 @@ func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
 
 		if err != nil {
 			log.Printf("%s request failed: %s", req.Proto, err)
-			continue
+			continue Retry
 		}
 
 		if resp == nil {
@@ -138,16 +144,16 @@ func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
 			resp.Proto, resp.Status, resp.ContentLength, req.Method, req.URL.String())
 
 		if 0 < resp.StatusCode && resp.StatusCode < 300 {
-			// success //
-			break
+			// success (perhaps should be more strict <= 200) //
+			break Retry
 		}
 
 		// Some errors shan't be repeated //
 		switch resp.StatusCode {
-		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusMethodNotAllowed,
-			http.StatusNotAcceptable, http.StatusProxyAuthRequired, http.StatusGone, http.StatusRequestURITooLong,
-			http.StatusTeapot, http.StatusRequestHeaderFieldsTooLarge:
-			break
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound,
+			http.StatusMethodNotAllowed, http.StatusNotAcceptable, http.StatusProxyAuthRequired, http.StatusGone,
+			http.StatusRequestURITooLong, http.StatusTeapot, http.StatusRequestHeaderFieldsTooLarge:
+			break Retry
 		}
 
 		if e := resp.Body.Close(); e != nil {
@@ -155,15 +161,17 @@ func (client *ApiClient) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	if err == nil && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-		err = errors.New(fmt.Sprintf("HTTP status code %d received", resp.StatusCode))
+	var apiErr *ApiError
+	if err != nil {
+		apiErr = NewApiError(resp, err.Error())
+	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr = NewApiError(resp, "Received HTTP status %s", resp.Status)
 	}
-
-	return resp, err
+	return resp, apiErr
 }
 
 func (client *ApiClient) JsonRequest(method string, path string, data interface{}) (
-	*http.Response, *json.Decoder, error) {
+	*http.Response, *json.Decoder, *ApiError) {
 	var (
 		body *bytes.Reader
 		err  error
@@ -177,26 +185,26 @@ func (client *ApiClient) JsonRequest(method string, path string, data interface{
 		// Encode JSON data and present as io.Reader //
 		jsonData, err := json.Marshal(data)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, NewApiError(nil, err.Error())
 		}
 		body = bytes.NewReader(jsonData)
 
 		req, err = client.NewRequest(method, path, body)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, NewApiError(nil, err.Error())
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return resp, nil, err
+	resp, apiErr := client.Do(req)
+	if apiErr != nil {
+		return resp, nil, apiErr
 	}
 
 	dec, err := decodeJsonResponse(resp)
 	if err != nil {
-		return resp, nil, err
+		return resp, nil, NewApiError(resp, err.Error())
 	}
-	return resp, dec, err
+	return resp, dec, nil
 }
 
 func decodeJsonResponse(resp *http.Response) (*json.Decoder, error) {
