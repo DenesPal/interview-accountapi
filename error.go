@@ -1,3 +1,5 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import (
@@ -5,6 +7,14 @@ import (
 	"net/http"
 )
 
+// ApiError serves as an extended error type to save HTTP status code in the Code property
+type ApiError struct {
+	Code int
+	text string
+}
+
+// NewApiError creates a new ApiError instance with status code from the http.Response and constructs error message
+// from formatted strings
 func NewApiError(response *http.Response, format string, args ...interface{}) *ApiError {
 	var code int
 	if response != nil {
@@ -13,11 +23,7 @@ func NewApiError(response *http.Response, format string, args ...interface{}) *A
 	return &ApiError{code, fmt.Sprintf(format, args...)}
 }
 
-type ApiError struct {
-	Code int
-	Text string
-}
-
+// Returns error message as string
 func (err *ApiError) Error() string {
-	return err.Text
+	return err.text
 }

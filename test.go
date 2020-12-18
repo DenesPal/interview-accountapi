@@ -1,3 +1,5 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import (
@@ -18,17 +20,16 @@ type TestContext struct {
 	T        *testing.T
 }
 
+// NewTestContext returns a TestContext with initialised ApiClient and testing.T
+//
+// The purpose of TestContext is to collect repetitive test actions as utility methods.
 func NewTestContext(t *testing.T) *TestContext {
-	var err error
-
 	t.Log("NewTestContext()")
 	test := TestContext{ApiBase: TestApiBase, PageSize: 5, T: t}
 
-	test.Client, err = NewClient(ApiClient{})
-	if err == nil {
-		err = test.Client.SetBaseURL(TestApiBase)
-	}
-	if err != nil {
+	test.Client = NewApiClient()
+
+	if err := test.Client.SetBaseURL(TestApiBase); err != nil {
 		test.T.Fatalf("Failed to create API client: %s", err)
 	}
 
@@ -38,14 +39,18 @@ func NewTestContext(t *testing.T) *TestContext {
 	return &test
 }
 
-// returns string of two capital latin letters //
+// alpha2 returns a random string of two capital latin letters.
+//
+// The random number generator shall be initialised beforehand by rand.Seed() to obtain a pseudo-random result.
 func alpha2() string {
 	return fmt.Sprintf("%c%c",
 		'A'+rand.Intn(26),
 		'A'+rand.Intn(26))
 }
 
-// returns random uuid4 (don't forget to seed the random generator) //
+// uuid4s returns a random uuid4 string.
+//
+// The random number generator shall be initialised beforehand by rand.Seed() to obtain a pseudo-random result.
 func uuid4s() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		rand.Uint32(),
@@ -56,8 +61,9 @@ func uuid4s() string {
 	)
 }
 
-func printJson(account *Account) error {
-	jsonData, err := json.Marshal(account)
+// printJson prints a thing JSON formatted
+func printJson(thing interface{}) error {
+	jsonData, err := json.Marshal(thing)
 	if err != nil {
 		return errors.New(fmt.Sprintf("json.Marshal() failed: %s", err))
 	}

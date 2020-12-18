@@ -1,3 +1,5 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import (

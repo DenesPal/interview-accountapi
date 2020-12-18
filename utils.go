@@ -1,8 +1,10 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import "net/url"
 
-// Parses sting URLs to URL struct and query values //
+// parseURL parses URL string to url.URL struct and the query part to url.Values
 func parseURL(urlString string) (*url.URL, url.Values, error) {
 	urlStruct, err := url.Parse(urlString)
 	if err != nil {
@@ -15,6 +17,7 @@ func parseURL(urlString string) (*url.URL, url.Values, error) {
 	return urlStruct, q, nil
 }
 
+// assembleURL URL string from url.URL struct and the query part from url.Values
 func assembleURL(urlStruct *url.URL, queryValues url.Values) string {
 	if queryValues != nil {
 		urlStruct.RawQuery = queryValues.Encode()

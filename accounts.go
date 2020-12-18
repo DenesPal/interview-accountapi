@@ -1,3 +1,5 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import (
@@ -9,18 +11,24 @@ import (
 	"time"
 )
 
+// Path to Account resources, relative to API root path
 const AccountsPath = "v1/organisation/accounts"
 
+// Results of List on Account resource
 type AccountListResults struct {
+	// Channel with Account resources, automatically iterating through pagination on consumption
 	channel chan<- Account
 	error   error
 }
 
+// List Account resources with optional filters (or nil)
+//
+// Parses one page at a time, feeding results through the channel, and fetches next page when last result was consumed
 func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Account, *ApiError) {
 	var apiErr *ApiError
 	accounts := make(chan *Account)
 
-	// Append filters and pagination to query string //
+	// Append filters and pagination to query string
 	u, q, err := parseURL(AccountsPath)
 	if err != nil {
 		return nil, NewApiError(nil, err.Error())
@@ -37,7 +45,7 @@ func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Accoun
 
 	pth := assembleURL(u, q)
 
-	// fixme implement a better way to return error, from subsequent loops too //
+	// fixme implement a better way to return error, from subsequent loops too
 	go func() {
 		var (
 			dec      *json.Decoder
@@ -68,7 +76,7 @@ func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Accoun
 				break
 			}
 
-			// signals outer func to return Fixme better solution is needed //
+			// signals outer func to return Fixme better solution is needed
 			if i == 0 {
 				accounts <- nil
 			}
@@ -93,6 +101,7 @@ func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Accoun
 	return accounts, apiErr
 }
 
+// Creates an Account resource and returns the created resource as received in the response
 func (client *ApiClient) CreateAccount(account *Account) (*Account, *ApiError) {
 	if err := account.Validate(); err != nil {
 		return nil, NewApiError(nil, err.Error())
@@ -114,6 +123,7 @@ func (client *ApiClient) CreateAccount(account *Account) (*Account, *ApiError) {
 	return response.Data, apiErr
 }
 
+// Updates an Account resource, returns the resource as received in the response
 func (client *ApiClient) UpdateAccount(id string, account *Account) (*Account, *ApiError) {
 	if id == "" {
 		return nil, NewApiError(nil, "Empty account id")
@@ -140,6 +150,7 @@ func (client *ApiClient) UpdateAccount(id string, account *Account) (*Account, *
 	return response.Data, apiErr
 }
 
+// Fetches an Account resource by id, if missing, returns ApiError with .code as 404.
 func (client *ApiClient) FetchAccount(id string) (*Account, *ApiError) {
 	if id == "" {
 		return nil, NewApiError(nil, "Empty account id")
@@ -162,6 +173,7 @@ func (client *ApiClient) FetchAccount(id string) (*Account, *ApiError) {
 	return response.Data, apiErr
 }
 
+// Deletes an Account resource by id, returns error or nil on success
 func (client *ApiClient) DeleteAccount(id string, version uint) *ApiError {
 	if id == "" {
 		return NewApiError(nil, "Empty account id")

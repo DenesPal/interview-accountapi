@@ -1,7 +1,10 @@
+// Copyleft 2020
+
 package interview_accountapi
 
 import "errors"
 
+// Account resource
 type Account struct {
 	Attributes     *AccountAttributes `json:"attributes"`
 	Id             string             `json:"id"`              // UUID ex: 7826c3cb-d6fd-41d0-b187-dc23ba928772
@@ -11,7 +14,7 @@ type Account struct {
 	Version uint   `json:"version,omitempty"` // version >= 0 ex: 0
 }
 
-// Validates Account and also sets default values //
+// Validates Account and also sets default values
 func (account *Account) Validate() error {
 	if account.Id == "" {
 		return errors.New("Account.Id can not be empty")
@@ -25,7 +28,7 @@ func (account *Account) Validate() error {
 	case "":
 		account.Type = "accounts"
 	case "accounts":
-		// pass //
+		// pass
 	default:
 		return errors.New("Account.Type should be one of [accounts]")
 	}
@@ -49,7 +52,7 @@ type AccountAttributes struct {
 		bank_id                        string
 		bank_id_code                   string
 		bic                            string */
-	Country string `json:"country"` // ISO 3166-1 alpha-2 country code ^[A-Z]{2}$ //
+	Country string `json:"country"` // ISO 3166-1 alpha-2 country code ^[A-Z]{2}$
 	/*	customer_id                 string
 		first_name                  string
 		iban                        string
@@ -63,7 +66,7 @@ type AccountAttributes struct {
 		title                       string */
 }
 
-// Validates AccountAttributes and could also set defaults //
+// Validates AccountAttributes and could also set defaults
 func (attr *AccountAttributes) Validate() error {
 	if attr.Country == "" {
 		return errors.New("AccountAttributes.Country can not be empty")
@@ -81,11 +84,13 @@ type RelationshipData struct {
 	Type string `json:"type"`
 } */
 
+// AccountDetailsListResponse returned for List on Accounts
 type AccountDetailsListResponse struct {
 	Data  []*Account `json:"data"`
 	Links *Links     `json:"links"`
 }
 
+// Links returned for a paginated List of resources
 type Links struct {
 	First string `json:"first"`
 	Last  string `json:"last"`
@@ -94,22 +99,25 @@ type Links struct {
 	Self  string `json:"self"`
 }
 
+// Envelope for Account data to Create
 type AccountCreation struct {
 	Data *Account `json:"data"`
 }
 
+// Envelope for Account data on Update
 type AccountAmendment struct {
-	// by schema it's AccountUpdate but in this exercise properties & requirements are same as for Account //
+	// by schema it's AccountUpdate but in this exercise properties & requirements are same as for Account
 	Data *Account `json:"data"`
 }
 
+// Details of a single Account on Create, Fetch and Update
 type AccountDetailsResponse struct {
 	Data  *Account `json:"data"`
 	Links *Links   `json:"links"`
 }
-
 type AccountCreationResponse AccountDetailsResponse
 
+// Available filter keys for Account List
 var accountListFilters = map[string]bool{
 	"bank_id_code":   true,
 	"bank_id":        true,

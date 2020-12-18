@@ -177,7 +177,7 @@ func TestUpdateAccount(t *testing.T) {
 		OrganisationId: account.OrganisationId,
 		Attributes:     &AccountAttributes{},
 	}
-	// make sure Country code is changed //
+	// make sure Country code is changed
 	if updates.Attributes.Country == "XX" {
 		updates.Attributes.Country = "XY"
 	} else {
