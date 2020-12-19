@@ -14,91 +14,136 @@ import (
 // Path to Account resources, relative to API root path
 const AccountsPath = "v1/organisation/accounts"
 
-// Results of List on Account resource
+// Results of ListAccounts
 type AccountListResults struct {
-	// Channel with Account resources, automatically iterating through pagination on consumption
-	channel chan<- Account
-	error   error
+	// Channel of Account resources, automatically iterating through pagination (unbuffered)
+	Channel chan *Account
+	// Error message (listing go-routine stops on error, stores it here, then closes the channel
+	Error *ApiError
+	// Used by Close to signal go-routine to terminate
+	closing chan bool
 }
 
-// List Account resources with optional filters (or nil)
+// Closes AccountListResults: signals internal go-routine of ListAccounts to terminate.
 //
-// Parses one page at a time, feeding results through the channel, and fetches next page when last result was consumed
-func (client *ApiClient) ListAccounts(filters map[string]string) (<-chan *Account, *ApiError) {
-	var apiErr *ApiError
-	accounts := make(chan *Account)
+// Never blocks because closing channel is buffered 1, also makes it safe to be invoked multiple times.
+// Also need not wait for the cleanup of the internal go-routine.
+//
+// If consumer stops receiving exactly after the last item of a page, the retrieval of the next page can run
+// beyond Close, as well as any errors related to that page remain hidden. This can be avoided making the closing
+// channel unbuffered, but then Close in it's current form could potentially block,
+// also could freeze if called multiple times.
+func (results *AccountListResults) Close() {
+	select {
+	case results.closing <- true:
+	default:
+	}
+}
+
+// Sets AccountListResults.Error and closes Channel, used by ListAccounts on error or to terminate internal go-routine
+func (results *AccountListResults) finish(apiErr *ApiError) {
+	// nil if no error
+	results.Error = apiErr
+	// Signals finish to receivers by closing the channel
+	close(results.Channel)
+}
+
+// List Account resources with optional filters (or nil), returns AccountListResults
+//
+// Parses one page at a time, feeding Account results through AccountListResults.Channel,
+// and fetches next page when the last item of a page is consumed.
+//
+// On error sets AccountListResults.Error (type ApiError) then closes AccountListResults.Channel
+//
+// AccountListResults.Close shall be invoked to terminate the internal go-routine
+//
+// A possible use pattern is to iterate with range over the AccountListResults.Channel
+// and check for AccountListResults.Error when the results are exhausted (since feeding stops on error).
+func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListResults {
+	results := &AccountListResults{Channel: make(chan *Account), closing: make(chan bool, 1)}
 
 	// Append filters and pagination to query string
 	u, q, err := parseURL(AccountsPath)
 	if err != nil {
-		return nil, NewApiError(nil, err.Error())
+		results.finish(NewApiError(nil, err.Error()))
+		return results
 	}
 
 	q.Set("page[size]", fmt.Sprint(client.PageSize))
 
 	for k, v := range filters {
 		if !accountListFilters[k] {
-			return nil, NewApiError(nil, "invalid filter key: %s", k)
+			results.finish(NewApiError(nil, "invalid filter key: %s", k))
+			return results
 		}
 		q.Set(fmt.Sprintf("filter[%s]", k), v)
 	}
 
 	pth := assembleURL(u, q)
 
-	// fixme implement a better way to return error, from subsequent loops too
+	// Internal go-routine to fetch successive pages and feed results to channel
 	go func() {
 		var (
+			apiErr   *ApiError
 			dec      *json.Decoder
 			resp     *http.Response
 			lastTime time.Time
 		)
 
 		for i := 0; pth != ""; i++ {
+			// Waits between requesting successive pages
 			sleepDuration := client.PagingBackOff - time.Now().Sub(lastTime)
 			if 0 < i && 0 < sleepDuration {
 				time.Sleep(sleepDuration)
 			}
 			lastTime = time.Now()
 
+			// Does the actual HTTP request and returns a JSON decoder
 			resp, dec, apiErr = client.JsonRequest(http.MethodGet, pth, nil)
 			if apiErr != nil {
 				break
 			}
 
+			// JSON-decodes response body
 			var response AccountDetailsListResponse
 			err := dec.Decode(&response)
+
+			// Close response body (already read all)
 			if e := resp.Body.Close(); e != nil {
-				log.Print("Closing of response body failed!")
+				// Probably safe to ignore this error, hence it is only logged, but isn't propagated through the chan
+				log.Printf("Closing of response body failed: %s", e)
 			}
 
+			// Stops on JSON decoding error from above
 			if err != nil {
 				apiErr = NewApiError(resp, err.Error())
 				break
 			}
 
-			// signals outer func to return Fixme better solution is needed
-			if i == 0 {
-				accounts <- nil
-			}
-
+			// Feeds results from current page to channel (one-by-one, blocking)
 			for _, acc := range response.Data {
-				accounts <- acc
+				select {
+				case results.Channel <- acc:
+				case <-results.closing:
+					// Stops on close message
+					break
+				}
 			}
 
 			if response.Links == nil {
+				// Was last page
 				break
 			}
+			// Iterates to next page
 			pth = response.Links.Next
 
 		}
-		close(accounts)
+
+		// Exposes error (if any) and signals finish to receivers
+		results.finish(apiErr)
 	}()
 
-	// block until first result is ready,
-	// also abusing a apiErr which is shared with internal goroutine to get at least the error of the first request
-	<-accounts
-
-	return accounts, apiErr
+	return results
 }
 
 // Creates an Account resource and returns the created resource as received in the response

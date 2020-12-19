@@ -10,17 +10,14 @@ import (
 func (test *TestContext) ListAccounts(filters map[string]string) (map[string]uint, *ApiError) {
 	test.T.Logf("ListAccounts(%s)", filters)
 
-	channel, apiErr := test.Client.ListAccounts(filters)
-	if apiErr != nil {
-		return nil, apiErr
-	}
-
+	results := test.Client.ListAccounts(filters)
 	accountVersionMap := make(map[string]uint)
-	for account := range channel {
+	for account := range results.Channel {
 		accountVersionMap[account.Id] = account.Version
 	}
+	results.Close()
 
-	return accountVersionMap, nil
+	return accountVersionMap, results.Error
 }
 
 func (test *TestContext) FetchAccount(id string) (*Account, *ApiError) {

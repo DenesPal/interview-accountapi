@@ -158,7 +158,7 @@ Retry:
 			log.Panic("http.client.Do() returned nil request and nil error")
 		}
 
-		log.Printf("%s response %s (%d bytes) for %s %s",
+		log.Printf("%s response %s (%d bytes) from %s %s",
 			resp.Proto, resp.Status, resp.ContentLength, req.Method, req.URL.String())
 
 		if 0 < resp.StatusCode && resp.StatusCode < 300 {
