@@ -7,23 +7,27 @@ import (
 	"net/http"
 )
 
-// ApiError serves as an extended error type to save HTTP status code in the Code property
-type ApiError struct {
-	Code int
-	text string
-}
-
-// NewApiError creates a new ApiError instance with status code from the http.Response and constructs error message
-// from formatted strings
+// NewApiError creates a new ApiError from either http.Response (optional) or error message
 func NewApiError(response *http.Response, format string, args ...interface{}) *ApiError {
-	var code int
+	var apiErr ApiError
+
 	if response != nil {
-		code = response.StatusCode
+		dc, er := decodeJsonResponse(response)
+		if er == nil {
+			er = dc.Decode(&apiErr)
+		}
+
+		apiErr.StatusCode = response.StatusCode
 	}
-	return &ApiError{code, fmt.Sprintf(format, args...)}
+
+	if apiErr.ErrorMessage == "" {
+		apiErr.ErrorMessage = fmt.Sprintf(format, args...)
+	}
+
+	return &apiErr
 }
 
-// Returns error message as string
+// Implements Error interface
 func (err *ApiError) Error() string {
-	return err.text
+	return err.ErrorMessage
 }

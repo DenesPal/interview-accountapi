@@ -69,7 +69,11 @@ func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListRes
 		return results
 	}
 
-	q.Set("page[size]", fmt.Sprint(client.PageSize))
+	if client.PageSize > 1000 {
+		q.Set("page[size]", "1000")
+	} else {
+		q.Set("page[size]", fmt.Sprint(client.PageSize))
+	}
 
 	for k, v := range filters {
 		if !accountListFilters[k] {
@@ -146,26 +150,42 @@ func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListRes
 	return results
 }
 
-// Creates an Account resource and returns the created resource as received in the response
+// Creates an Account resource and returns the latest version of it
 func (client *ApiClient) CreateAccount(account *Account) (*Account, *ApiError) {
 	if err := account.Validate(); err != nil {
 		return nil, NewApiError(nil, err.Error())
 	}
 
+	// Retrying a POST request can raise a 409 Conflict, this is a scrappy work-around part 1:
+	// Check for existing resource by id and raise a Conflict error now. Then Conflict errors for the POST request
+	// can be interpreted as a retry scenario where the success of the first try was lost.
+	if existing, err := client.FetchAccount(account.Id); err == nil {
+		apiError := NewApiError(nil, "Account with id %s already exists", existing.Id)
+		apiError.StatusCode = http.StatusConflict
+		return existing, apiError
+	}
+
 	resp, dec, apiErr := client.JsonRequest(http.MethodPost, AccountsPath, AccountCreation{account})
-	if apiErr != nil {
-		return nil, apiErr
+
+	if apiErr == nil {
+		var response AccountCreationResponse
+		if err := dec.Decode(&response); err != nil {
+			apiErr = NewApiError(resp, err.Error())
+		}
+		if e := resp.Body.Close(); e != nil {
+			log.Print("Closing of response body failed!")
+		}
+		return response.Data, apiErr
+
+	} else if resp != nil && resp.StatusCode == http.StatusConflict {
+		// Work-around part 2: In case of Conflict, fetch and return the existing resource.
+		// This would introduce a race condition if the same id was used to create resources across multiple clients.
+		if latest, err := client.FetchAccount(account.Id); err == nil {
+			return latest, nil
+		}
 	}
 
-	var response AccountCreationResponse
-	if err := dec.Decode(&response); err != nil {
-		apiErr = NewApiError(resp, err.Error())
-	}
-	if e := resp.Body.Close(); e != nil {
-		log.Print("Closing of response body failed!")
-	}
-
-	return response.Data, apiErr
+	return nil, apiErr
 }
 
 // Updates an Account resource, returns the resource as received in the response

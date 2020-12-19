@@ -40,7 +40,7 @@ type ApiClient struct {
 	BaseURL *url.URL
 	// Timeout of HTTP requests
 	timeout time.Duration
-	// Retry HTTP requests N times if received an unexpected status code
+	// Retry HTTP requests N times if received an unexpected status code, min 1
 	Retries uint
 	// Wait between initiation of requests in a retry scenario
 	ErrorBackOff time.Duration
@@ -48,7 +48,7 @@ type ApiClient struct {
 	PagingBackOff time.Duration
 	// The underlying HTTP client
 	httpClient *http.Client
-	// Number of items per page for List actions (default 100)
+	// Number of items per page for List actions (default 100, max 1000)
 	PageSize uint
 }
 
@@ -106,12 +106,16 @@ func (client *ApiClient) NewRequest(method string, path string, body io.Reader) 
 //
 // A response status code of >= 200 < 300 is considered successful.
 //
-// Status codes <200 400 401 403 404 405 406 407 410 414 418 431 are considered unrecoverable and not retried.
+// Status codes <200 400 401 403 404 405 406 407 409 410 414 418 431 are considered unrecoverable and not retried.
 // Timeout is calculated from the initiation of the request.
 // There is an ErrorBackOff delay between they initiation of Retries. When retries are exhausted,
 // the error of the last request is returned.
 //
-// Returned ApiError has Error interface with Code property with the returned HTTP status code
+// Retrying introduces a trade-off with POST (Create) requests as it may result in a Conflict on succeeding tries if
+// the success from the first try got hidden. This shall be handled by the caller. (see CreateAccount for example)
+//
+// Returned ApiError has Error interface with StatusCode property with the returned HTTP status code.
+// If an error message is present in the response, it is parsed
 func (client *ApiClient) Do(req *http.Request) (*http.Response, *ApiError) {
 	var body []byte
 	var err error
@@ -169,8 +173,9 @@ Retry:
 		// Some errors shan't be repeated
 		switch resp.StatusCode {
 		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound,
-			http.StatusMethodNotAllowed, http.StatusNotAcceptable, http.StatusProxyAuthRequired, http.StatusGone,
-			http.StatusRequestURITooLong, http.StatusTeapot, http.StatusRequestHeaderFieldsTooLarge:
+			http.StatusMethodNotAllowed, http.StatusNotAcceptable, http.StatusProxyAuthRequired,
+			http.StatusConflict, http.StatusGone, http.StatusRequestURITooLong, http.StatusTeapot,
+			http.StatusRequestHeaderFieldsTooLarge:
 			break Retry
 		}
 
@@ -183,7 +188,7 @@ Retry:
 	if err != nil {
 		apiErr = NewApiError(resp, err.Error())
 	} else if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		apiErr = NewApiError(resp, "Received HTTP status %s", resp.Status)
+		apiErr = NewApiError(resp, "Received unexpected HTTP status code %s", resp.Status)
 	}
 	return resp, apiErr
 }
@@ -222,7 +227,7 @@ func (client *ApiClient) JsonRequest(method string, path string, data interface{
 
 	dec, err := decodeJsonResponse(resp)
 	if err != nil {
-		return resp, nil, NewApiError(resp, err.Error())
+		return resp, nil, NewApiError(nil, err.Error())
 	}
 	return resp, dec, nil
 }

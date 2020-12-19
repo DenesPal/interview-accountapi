@@ -110,11 +110,13 @@ type AccountAmendment struct {
 	Data *Account `json:"data"`
 }
 
-// Details of a single Account on Create, Fetch and Update
+// Details of a single Account in response to Fetch and Update
 type AccountDetailsResponse struct {
 	Data  *Account `json:"data"`
 	Links *Links   `json:"links"`
 }
+
+// Details of a single Account in response to Create
 type AccountCreationResponse AccountDetailsResponse
 
 // Available filter keys for Account List
@@ -125,4 +127,12 @@ var accountListFilters = map[string]bool{
 	"iban":           true,
 	"customer_id":    true,
 	"country":        true,
+}
+
+// Error information
+type ApiError struct {
+	ErrorMessage string `json:"error_message"`
+	ErrorCode    string `json:"error_code"`
+	// Included to save HTTP status code of the response
+	StatusCode int `json:"-"`
 }

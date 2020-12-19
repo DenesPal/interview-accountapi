@@ -3,6 +3,7 @@ package interview_accountapi
 import (
 	"fmt"
 	"math/rand"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -124,13 +125,19 @@ func TestCreateFetchAccount(t *testing.T) {
 	t.Log("TestCreateFetchAccount()")
 	test := NewTestContext(t)
 
-	accountBud := test.NewAccountBud()
-	account, err := test.CreateAccount(accountBud)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if account == nil {
-		test.T.Fatal("Account is nil")
+	var account *Account
+	var err *ApiError
+	var accountBud = test.NewAccountBud()
+
+	// Also checks for idempotence
+	for i := 0; i < 3; i++ {
+		account, err = test.CreateAccount(accountBud)
+		if err != nil && (i < 1 || err.StatusCode != http.StatusConflict) {
+			t.Fatal(err)
+		}
+		if account == nil {
+			test.T.Fatal("Account is nil")
+		}
 	}
 
 	test.CompareAccounts(account, accountBud)
@@ -183,7 +190,7 @@ func TestUpdateAccount(t *testing.T) {
 
 	updAccount, err := test.UpdateAccount(origAccount.Id, updates)
 	if err != nil {
-		if err.Code == 404 {
+		if err.StatusCode == 404 {
 			t.Skip("Update test is expected to fail here if PATCH is not implemented on mock backend.")
 		} else {
 
@@ -239,55 +246,63 @@ func TestDeleteAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = test.DeleteAccount(account.Id, account2.Version); err != nil {
+	if err = test.DeleteAccount(account2.Id, account2.Version); err != nil {
 		t.Fatal(err)
 	}
 
-	account2, err = test.FetchAccount(account.Id)
-	if err == nil || account2 != nil {
-		t.Errorf("Account was fetched after delete %s", account.Id)
-	} else if err.Code != 404 {
+	account, err = test.FetchAccount(account.Id)
+	if err == nil || account != nil {
+		t.Errorf("Account was fetched after delete %s", account2.Id)
+	} else if err.StatusCode != 404 {
 		t.Errorf("Received unexpected code %d while testing fetch-fail of deleted acount %s",
-			err.Code, account.Id)
+			err.StatusCode, account2.Id)
 	}
 
 	accountVersionMap, err = test.ListAccounts(nil)
 	if err != nil {
 		t.Error(err)
-	} else if _, found := accountVersionMap[account.Id]; found {
-		t.Errorf("Account %s was seen after delete (has %d accounts)", account.Id, len(accountVersionMap))
+	} else if _, found := accountVersionMap[account2.Id]; found {
+		t.Errorf("Account %s was seen after delete (has %d accounts)", account2.Id, len(accountVersionMap))
+	}
+
+	if err = test.DeleteAccount(account2.Id, account2.Version); err != nil {
+		t.Fatalf("Replaying of Delete for account %s version %d failed: %s", account2.Id, account2.Version, err)
 	}
 }
 
 func TestFetchAccountPagination(t *testing.T) {
 	t.Log("TestFetchAccountPagination()")
 	test := NewTestContext(t)
-	test.Client.PageSize = 5
+	test.Client.PageSize = 1011
 
 	accountVersionMap, err := test.ListAccounts(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("Seen %d accounts", len(accountVersionMap))
+
+	num := len(accountVersionMap)
+	t.Logf("Has %d accounts", num)
 
 	var c int
-	for i := len(accountVersionMap); i < int(test.Client.PageSize)*3+1; i++ {
+	for i := num; i < 10; i++ {
 		_, err := test.CreateAccount(nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		c++
 	}
-
 	if c > 0 {
 		t.Logf("Created %d accounts", c)
-
-		accountVersionMap, err = test.ListAccounts(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("Seen %d accounts", len(accountVersionMap))
 	}
+
+	test.Client.PageSize = uint((num + c) / 3)
+	t.Logf("Paginating with page size %d", test.Client.PageSize)
+
+	accountVersionMap, err = test.ListAccounts(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Seen %d accounts", len(accountVersionMap))
 }
 
 func TestDeleteAccount_no_id(t *testing.T) {
