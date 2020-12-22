@@ -1,6 +1,17 @@
 version: '3'
 
 services:
+
+  tests:
+    command: go test -v github.com/DenesPal/interview-accountapi
+    depends_on:
+      - accountapi
+    environment:
+      - API_URL=http://accountapi:8080/
+    image: golang:1.15
+    volumes:
+      - ./:/go/src/github.com/DenesPal/interview-accountapi
+
   accountapi:
     image: form3tech/interview-accountapi:v1.0.0-4-g63cf8434
     restart: on-failure
@@ -21,6 +32,7 @@ services:
       - DATABASE-PASSWORD=123
     ports:
       - 8080:8080
+
   postgresql:
     image: postgres:9.5-alpine
     healthcheck:

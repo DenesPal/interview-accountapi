@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 )
 
-const TestApiBase = "http://localhost:8080/"
+const ApiUrlEnvKey = "API_URL"
 
 type TestContext struct {
 	Client   *ApiClient
@@ -25,12 +26,17 @@ type TestContext struct {
 // The purpose of TestContext is to collect repetitive test actions as utility methods.
 func NewTestContext(t *testing.T) *TestContext {
 	t.Log("NewTestContext()")
-	test := TestContext{ApiBase: TestApiBase, PageSize: 5, T: t}
+	test := TestContext{PageSize: 1000, T: t}
 
 	test.Client = NewApiClient()
 
-	if err := test.Client.SetBaseURL(TestApiBase); err != nil {
-		test.T.Fatalf("Failed to create API client: %s", err)
+	apiBase := os.Getenv(ApiUrlEnvKey)
+	if apiBase == "" {
+		test.T.Fatalf("Missing environment variable %s with API base URL", ApiUrlEnvKey)
+	}
+
+	if err := test.Client.SetBaseURL(apiBase); err != nil {
+		test.T.Fatalf("Failed to set API base URL: %s", err)
 	}
 
 	rand.Seed(time.Now().UnixNano())
