@@ -127,10 +127,10 @@ func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListRes
 			// Feeds results from current page to channel (one-by-one, blocking)
 			for _, acc := range response.Data {
 				select {
-				case results.Channel <- acc:
 				case <-results.closing:
 					// Stops on close message
 					break
+				case results.Channel <- acc:
 				}
 			}
 
@@ -159,10 +159,13 @@ func (client *ApiClient) CreateAccount(account *Account) (*Account, *ApiError) {
 	// Retrying a POST request can raise a 409 Conflict, this is a scrappy work-around part 1:
 	// Check for existing resource by id and raise a Conflict error now. Then Conflict errors for the POST request
 	// can be interpreted as a retry scenario where the success of the first try was lost.
-	if existing, err := client.FetchAccount(account.Id); err == nil {
-		apiError := NewApiError(nil, "Account with id %s already exists", existing.Id)
-		apiError.StatusCode = http.StatusConflict
-		return existing, apiError
+	existing, apiErr := client.FetchAccount(account.Id)
+	if apiErr == nil {
+		apiErr = NewApiError(nil, "Account with id %s already exists", existing.Id)
+		apiErr.StatusCode = http.StatusConflict
+		return existing, apiErr
+	} else if apiErr.StatusCode != http.StatusNotFound {
+		return nil, apiErr
 	}
 
 	resp, dec, apiErr := client.JsonRequest(http.MethodPost, AccountsPath, AccountCreation{account})
