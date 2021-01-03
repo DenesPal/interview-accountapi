@@ -21,7 +21,11 @@ func NewApiError(response *http.Response, format string, args ...interface{}) *A
 	}
 
 	if apiErr.ErrorMessage == "" {
-		apiErr.ErrorMessage = fmt.Sprintf(format, args...)
+		if len(args) > 0 {
+			apiErr.ErrorMessage = fmt.Sprintf(format, args...)
+		} else {
+			apiErr.ErrorMessage = format
+		}
 	}
 
 	return &apiErr
