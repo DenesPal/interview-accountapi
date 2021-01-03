@@ -68,12 +68,7 @@ func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListRes
 		results.finish(NewApiError(nil, err.Error()))
 		return results
 	}
-
-	if client.PageSize > 1000 {
-		q.Set("page[size]", "1000")
-	} else {
-		q.Set("page[size]", fmt.Sprint(client.PageSize))
-	}
+	q.Set("page[size]", fmt.Sprint(client.pageSize))
 
 	for k, v := range filters {
 		if !accountListFilters[k] {
@@ -96,8 +91,9 @@ func (client *ApiClient) ListAccounts(filters map[string]string) *AccountListRes
 
 		for i := 0; pth != ""; i++ {
 			// Waits between requesting successive pages
-			sleepDuration := client.PagingBackOff - time.Now().Sub(lastTime)
+			sleepDuration := client.PaginationBackOff - time.Now().Sub(lastTime)
 			if 0 < i && 0 < sleepDuration {
+				log.Printf("Fetching next page of results in %v", sleepDuration)
 				time.Sleep(sleepDuration)
 			}
 			lastTime = time.Now()

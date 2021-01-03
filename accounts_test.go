@@ -273,7 +273,7 @@ func TestDeleteAccount(t *testing.T) {
 func TestFetchAccountPagination(t *testing.T) {
 	t.Log("TestFetchAccountPagination()")
 	test := NewTestContext(t)
-	test.Client.PageSize = 1011
+	test.Client.SetPageSize(1011)
 
 	accountVersionMap, err := test.ListAccounts(nil)
 	if err != nil {
@@ -295,8 +295,8 @@ func TestFetchAccountPagination(t *testing.T) {
 		t.Logf("Created %d accounts", c)
 	}
 
-	test.Client.PageSize = uint((num + c) / 3)
-	t.Logf("Paginating with page size %d", test.Client.PageSize)
+	test.Client.SetPageSize((num + c) / 3)
+	t.Logf("Paginating with page size %d", test.Client.PageSize())
 
 	accountVersionMap, err = test.ListAccounts(nil)
 	if err != nil {
